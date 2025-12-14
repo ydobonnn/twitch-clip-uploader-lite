@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Secrets
+.secrets/
+.env
+*.token.json
+*.creds.json
+
+# VS Code, OS junk
+.vscode/
+.DS_Store
+
+deprecated/
+TODO.txt
+final_thumbnail.jpg
+final_video.mp4

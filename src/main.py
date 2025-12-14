@@ -1,0 +1,70 @@
+from create_video import create_thumbnail, create_video, get_clips_df
+from youtube_manager import get_authenticated_service, upload_video, create_description, create_tags, video_exists
+from config import CATEGORIES, GAMES_FILE
+from datetime import datetime, timedelta, time, timezone
+import argparse
+import json
+from multiprocessing import freeze_support
+
+SLOTS = [time(17, 0), time(21, 0)]  # 17:00 UTC and 21:00 UTC
+EPISODE_START_DATE = datetime(2025, 3, 24, tzinfo=timezone.utc) # Monday, March 24, 2025
+
+def get_episode_by_week(override_date=None):
+    today = override_date or datetime.now(timezone.utc)
+    weeks_elapsed = (today - EPISODE_START_DATE).days // 7
+    return weeks_elapsed + 1
+
+def get_scheduled_datetime(order_id, ref_date):
+    week_start = ref_date - timedelta(days=ref_date.weekday())
+    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_offset, slot_index = divmod(order_id, 2)
+    scheduled_date = week_start + timedelta(days=day_offset)
+    return datetime.combine(scheduled_date, SLOTS[slot_index], tzinfo=timezone.utc)
+
+def create_and_upload_video(ref_date, game_name, game_id, scheduled_time, privacyStatus="private"):
+    youtube = get_authenticated_service()
+    episode_number = get_episode_by_week(ref_date)
+    game_folder = CATEGORIES / game_name
+    video_path = game_folder / "final_video.mp4"
+    thumbnail_path = game_folder / "final_thumbnail.jpg"
+
+    print(f"Current Game: '{game_name}', ID: {game_id}, Episode Number: {episode_number}, Scheduled Time: {scheduled_time}")
+
+    clips_df = get_clips_df(game_id, ref_date)
+    streamer_names = list(dict.fromkeys(clips_df["streamer_name"].tolist()))
+    title = f"{game_name} MOST VIEWED Twitch Clips of The Week! #{episode_number}"
+    desc  = create_description(game_name, episode_number, streamer_names)
+    tags = create_tags(game_name, streamer_names)
+
+    print(f"Title: {title}\nTags: {tags}\nDescription: {desc}")
+
+    if video_exists(youtube, title):
+        print(f"Video already exists: {title}")
+        return
+
+    create_video(game_name, clips_df, episode_number)
+    create_thumbnail(video_path, thumbnail_path)
+
+    upload_video(youtube=youtube, file=video_path, title=title, description=desc, category="24", keywords=tags, privacyStatus=privacyStatus, thumbnail_path=thumbnail_path, playlist_name=game_name, scheduled_upload_time=scheduled_time)
+
+    if video_exists(youtube, title):
+        print(f"Video upload successful!")
+
+def create_and_upload_videos_for_games(ref_date, games, start_index=0, end_index=14):
+    for game in sorted(games, key=lambda x: x["order_id"])[start_index:end_index]:
+        scheduled_datetime = get_scheduled_datetime(game["order_id"], ref_date)
+        create_and_upload_video(ref_date, game["name"], game["id"], scheduled_datetime)
+
+if __name__ == "__main__":
+    freeze_support()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--start", type=int, default=0)
+    parser.add_argument("--end", type=int, default=7)
+    parser.add_argument("--weeks-ago", type=int, default=0)
+    args = parser.parse_args()
+
+    with open(GAMES_FILE) as f:
+        games = json.load(f)
+
+    ref_date = datetime.now(timezone.utc) - timedelta(weeks=args.weeks_ago)
+    create_and_upload_videos_for_games(ref_date, games, start_index=args.start, end_index=args.end)

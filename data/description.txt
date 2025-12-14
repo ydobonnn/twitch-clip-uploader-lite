@@ -1,0 +1,10 @@
+{game_name} MOST VIEWED Twitch Clips of The Week #{episode_number}. {game_name} highlights, best clips and funny moments from this week!
+
+{game_name} Twitch
+{game_name} Most Viewed
+{game_name} Clips
+{game_name} Moments
+
+
+Sources:
+{streamer_sources}

@@ -1,0 +1,34 @@
+name: Upload Batch 2 (7-14)
+
+on:
+  schedule:
+    - cron: "0 6 * * 2" # Tuesday at 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt update && sudo apt install -y ffmpeg
+
+      - run: pip install -r requirements.txt
+
+      - run: mkdir -p .secrets
+      - run: |
+          echo '${{ secrets.YOUTUBE_CREDS_JSON }}' > .secrets/youtube_creds.json
+          echo '${{ secrets.YOUTUBE_TOKEN_JSON }}' > .secrets/youtube_token.json
+
+      - run: |
+          echo "TWITCH_CLIENT_ID=${{ secrets.TWITCH_CLIENT_ID }}" >> .env
+          echo "TWITCH_CLIENT_SECRET=${{ secrets.TWITCH_CLIENT_SECRET }}" >> .env
+          echo "YOUTUBE_CLIENT_ID=${{ secrets.YOUTUBE_CLIENT_ID }}" >> .env
+          echo "YOUTUBE_CLIENT_SECRET=${{ secrets.YOUTUBE_CLIENT_SECRET }}" >> .env
+
+      - run: python src/main.py --start 7 --end 14

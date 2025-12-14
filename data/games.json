@@ -1,0 +1,16 @@
+[
+    {"id": "509658", "name": "Just Chatting", "order_id": 0},
+    {"id": "29595", "name": "Dota 2", "order_id": 1},
+    {"id": "18122", "name": "World of Warcraft", "order_id": 2},
+    {"id": "512710", "name": "Warzone", "order_id": 3},
+    {"id": "32399", "name": "Counter-Strike", "order_id": 4},
+    {"id": "27471", "name": "Minecraft", "order_id": 5},
+    {"id": "32982", "name": "Grand Theft Auto V", "order_id": 6},
+    {"id": "460630", "name": "Rainbow Six Siege", "order_id": 7},
+    {"id": "493057", "name": "PUBG", "order_id": 8},
+    {"id": "1264310518", "name": "Marvel Rivals", "order_id": 9},
+    {"id": "21779", "name": "League of Legends", "order_id": 10},
+    {"id": "516575", "name": "VALORANT", "order_id": 11},
+    {"id": "509672", "name": "IRL", "order_id": 12},
+    {"id": "33214", "name": "Fortnite", "order_id": 13}
+]
