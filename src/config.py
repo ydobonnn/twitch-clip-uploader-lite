@@ -1,6 +1,6 @@
 from pathlib import Path
 
-# Project Root (2 Ebenen hoch vom aktuellen File)
+# Project Root
 ROOT = Path(__file__).resolve().parent.parent
 
 # Folders

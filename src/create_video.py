@@ -1,17 +1,22 @@
-import re
 from process_clips import  create_intro, process_all_clips_one_command, process_all_clips, process_all_clips_multiprocessing
 from twitch_manager import download_clips, get_english_clips, get_clip_count
 from PIL import Image
 import pandas as pd
 import subprocess
 import os
+import tempfile
+from pathlib import Path
 from config import CATEGORIES, OVERLAY_PATH
 
 def get_clips_df(game_id, ref_date):
-    all_clips = get_english_clips(game_id, desired_count=100)
+    columns = ["clip_filename", "clip_name", "duration_sec", "views", "streamer_name", "clip_id"]
+    all_clips = get_english_clips(game_id, desired_count=100, today=ref_date)
     print(f"Found {len(all_clips)} English Clips")
     clip_count = get_clip_count(all_clips)
     print(f"Clip Count: {clip_count}")
+    if clip_count == 0:
+        return pd.DataFrame(columns=columns)
+
     clips = all_clips[:clip_count]
 
     df = pd.DataFrame([
@@ -30,6 +35,9 @@ def get_clips_df(game_id, ref_date):
 import time
 
 def create_video(game_name, df, episode_number):
+    if df.empty:
+        print(f"No clips available for {game_name}; skipping video creation.")
+        return
     start_time = time.time()  # Start timer
     folder_path = CATEGORIES / game_name
     # Download all clips to "clips" folder
@@ -54,7 +62,7 @@ def extract_frame(video_path, timestamp, output_image_path):
     """
     # FFmpeg command to extract a frame at the given timestamp
     command = [
-        'ffmpeg', '-i', video_path,  # Input video file
+        'ffmpeg', '-y', '-i', video_path,  # Input video file, overwrite if target exists
         '-ss', timestamp,  # Specify the timestamp (e.g., 5 seconds)
         '-vframes', '1',  # Extract a single frame
         output_image_path  # Output path for the frame
@@ -96,29 +104,19 @@ def create_thumbnail(video_path, output_image_path, timestamp='00:00:15'):
     :param logo_path: The path to the logo image
     :param output_image_path: The path to save the final thumbnail
     """
+    thumb_dir = Path(output_image_path).parent
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(suffix=".jpg", dir=thumb_dir, delete=False) as tmp:
+        temp_frame_path = tmp.name
+
     # Extract a frame at timestamp from the video
-    extract_frame(video_path, timestamp, 'extracted_frame.jpg')
+    extract_frame(video_path, timestamp, temp_frame_path)
 
     # Overlay the logo on the extracted frame and save the final image
-    overlay_logo('extracted_frame.jpg', output_image_path)
+    overlay_logo(temp_frame_path, output_image_path)
     
     # Optionally remove the temporary extracted frame image
-    os.remove('extracted_frame.jpg')
-
-if __name__ == "__main__":
-    video_path = 'Grand Theft Auto V/final_video.mp4'  # Path to your video
-    output_image_path = 'output_thumbnail.jpg'  # Path to save the final thumbnail
-    
-    # Create the thumbnail
-    create_thumbnail(video_path, output_image_path, timestamp='00:00:25')
-    print(f"Thumbnail created and saved as {output_image_path}")
-
-    # Get game ID
-    # game_name = "Grand Theft Auto V"
-    # game_id = get_game_id(game_name)
-    # df = get_clips_df(game_id)
-    # print(f"Game ID for '{game_name}': {game_id}")
-    # # Create video
-    # create_video(game_name, df)
-    # pd.set_option('display.max_columns', None)
-    # print(df.head(10))
+    try:
+        os.remove(temp_frame_path)
+    except OSError:
+        pass

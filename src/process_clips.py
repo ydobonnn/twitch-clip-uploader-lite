@@ -348,17 +348,3 @@ def process_all_clips_multiprocessing(df, folder_path, remove_temp=False, reenco
                     file.unlink()
                 except Exception as e:
                     print(f"⚠️ Could not remove {file.name}: {e}")
-
-if __name__ == "__main__":
-    # Example DataFrame with clip metadata
-    df = pd.DataFrame([
-    {"clip_filename": "1.mp4", "streamer_name": "O'Brien"},
-    {"clip_filename": "2.mp4", "streamer_name": 'He said "Wow"'},
-    ])
-
-    # Folder path where your clips are stored
-    folder_path = "categories/Warzone"
-
-    # Call the function
-    # create_intro(df, folder_path, "Warzone", 1)
-    process_all_clips_one_command(df, folder_path)

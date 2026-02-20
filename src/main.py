@@ -31,6 +31,9 @@ def create_and_upload_video(ref_date, game_name, game_id, scheduled_time, privac
     print(f"Current Game: '{game_name}', ID: {game_id}, Episode Number: {episode_number}, Scheduled Time: {scheduled_time}")
 
     clips_df = get_clips_df(game_id, ref_date)
+    if clips_df.empty:
+        print(f"Skipping '{game_name}' because not enough clips were found.")
+        return
     streamer_names = list(dict.fromkeys(clips_df["streamer_name"].tolist()))
     title = f"{game_name} MOST VIEWED Twitch Clips of The Week! #{episode_number}"
     desc  = create_description(game_name, episode_number, streamer_names)

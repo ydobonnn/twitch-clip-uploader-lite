@@ -1,7 +1,6 @@
 import httplib2
 import os
 import random
-import sys
 import time
 from apiclient.discovery import build
 from apiclient.errors import HttpError
@@ -333,19 +332,3 @@ def video_exists(youtube, title_to_check):
     except HttpError as e:
         print(f"Error checking video existence: {e}")
         return False
-
-
-if __name__ == "__main__":
-    # video_file = "Just Chatting/processed_1.mp4"
-    # thumbnail_file = "Just Chatting/final_thumbnail.jpg"
-    # scheduled_time = datetime.datetime(2025, 3, 24, 18, 0)  # March 25, 2025, 18:00 UTC
-    # upload_video(file=video_file, title="My Video 3", description="A test video upload", category="23", keywords="test,upload", privacyStatus="private", thumbnail_path=thumbnail_file, scheduled_upload_time=scheduled_time)
-    
-    youtube = get_authenticated_service()
-    title="Just Chatting MOST VIEWED Twitch Clips of The Week! #10"
-    video_exists(youtube, title)
-    # ensure_playlist_and_add_video(youtube, "Just Chatting", "BK_aGHPkoJ4")
-
-    # set_thumbnail(youtube, "yMG14DjJW4Y", "Rainbow Six Siege/final_thumbnail.jpg")
-
-

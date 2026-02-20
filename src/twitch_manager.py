@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import requests
 import yt_dlp
 import os
+from typing import Optional
 
 # Function to get access token (using your existing code)
 def get_access_token(client_id, client_secret):
@@ -19,10 +20,7 @@ def get_access_token(client_id, client_secret):
 # Function to get the game ID for Marvel Rivals
 def get_game_id(game_name):
     url = "https://api.twitch.tv/helix/games"
-    headers = {
-        "Client-ID": CLIENT_ID,
-        "Authorization": f"Bearer {ACCESS_TOKEN}"
-    }
+    headers = get_auth_headers()
     params = {"name": game_name}
     response = requests.get(url, headers=headers, params=params)
     data = response.json().get("data", [])
@@ -31,10 +29,7 @@ def get_game_id(game_name):
 # Function to fetch top 10 most viewed clips in the last 7 days
 def get_top_clips(game_id, days=7, limit=100, cursor=None):
     url = "https://api.twitch.tv/helix/clips"
-    headers = {
-        "Client-ID": CLIENT_ID,
-        "Authorization": f"Bearer {ACCESS_TOKEN}"
-    }
+    headers = get_auth_headers()
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
     params = {
@@ -93,10 +88,7 @@ def get_top_clips_last_week(game_id, limit=100, cursor=None, end_time=None):
 
     # Make the API call to get top clips for the given game and time range
     url = "https://api.twitch.tv/helix/clips"
-    headers = {
-        "Client-ID": CLIENT_ID,
-        "Authorization": f"Bearer {ACCESS_TOKEN}"
-    }
+    headers = get_auth_headers()
 
     response = requests.get(url, headers=headers, params=params)
     return response.json()  # Return the API response as JSON
@@ -139,6 +131,9 @@ def get_english_clips(game_id, desired_count=10, today=None):
             cursor = pagination["cursor"]
         else:
             break  # No more pages available
+
+    # Drop near-duplicate moments from the same VOD (keeps higher-view clip first)
+    all_english_clips = dedupe_overlapping_clips(all_english_clips)
 
     # Return only the desired number of English clips, or as many as were available.
     return all_english_clips[:desired_count]
@@ -203,6 +198,10 @@ def get_clip_count(clips):
     :param lower_bound_factor: Factor to determine the lower bound for views.
     :return: The number of clips with views above the lower bound.
     """
+    if len(clips) < 10:
+        print(f"Not enough clips ({len(clips)}) to build a video. Skipping.")
+        return 0
+    
     min_clips, max_clips = get_clip_counts_for_length(clips)
 
     # Get the views threshold for the clip that exceeds 600s cumulative length
@@ -219,29 +218,59 @@ def get_clip_count(clips):
 
     return clip_count
 
+def dedupe_overlapping_clips(clips, overlap_ratio=0.25):
+    """
+    Drop clips that overlap heavily with a higher-view clip from the same VOD.
+    Keeps the highest-view clip first (sorted desc by view_count).
+    """
+    clips_sorted = sorted(clips, key=lambda c: c.get("view_count", 0), reverse=True)
+    kept = []
+    for clip in clips_sorted:
+        vid = clip.get("video_id")
+        off = clip.get("vod_offset")
+        dur = clip.get("duration")
+        if vid is None or off is None or dur is None:
+            kept.append(clip)
+            continue
+
+        start, end = max(0, off - dur), off
+        is_dup = False
+        for k in kept:
+            if k.get("video_id") != vid:
+                continue
+            ks, ke = max(0, k["vod_offset"] - k["duration"]), k["vod_offset"]
+            overlap = max(0, min(end, ke) - max(start, ks))
+            if overlap > 0:
+                ratio = overlap / min(dur, k["duration"])
+                if ratio >= overlap_ratio:
+                    is_dup = True
+                    break
+        if not is_dup:
+            kept.append(clip)
+    return kept
+
 # Load environment variables from a .env file if present (for local use)
 load_dotenv()
 
 # Use environment variables (they will be pulled from GitHub Actions secrets in CI)
 CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
+ACCESS_TOKEN: Optional[str] = None
 
 if not CLIENT_ID or not CLIENT_SECRET:
     raise ValueError("Missing TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET environment variable")
 
-# Get access token
-ACCESS_TOKEN = get_access_token(CLIENT_ID, CLIENT_SECRET)
-print(f"Access Token: {ACCESS_TOKEN}")
+def get_auth_headers():
+    token = get_access_token_cached()
+    return {
+        "Client-ID": CLIENT_ID,
+        "Authorization": f"Bearer {token}"
+    }
 
-# # Get game ID for "Marvel Rivals"
-# GAME_NAME = "League of Legends"
-# GAME_ID = get_game_id(GAME_NAME)
-# print(f"Game ID for '{GAME_NAME}': {GAME_ID}")
-
-# # # Get and display clips
-# clips = get_english_clips(GAME_ID, desired_count=100)
-# print(f"Found {len(clips)} Clips")
-
-
-# # Download all clips to "clips" folder
-# download_clips(clips, GAME_NAME)
+def get_access_token_cached():
+    """Lazily fetch and cache the Twitch access token without logging it."""
+    global ACCESS_TOKEN
+    if ACCESS_TOKEN:
+        return ACCESS_TOKEN
+    ACCESS_TOKEN = get_access_token(CLIENT_ID, CLIENT_SECRET)
+    return ACCESS_TOKEN
