@@ -14,7 +14,7 @@ def process_text(text):
     """Manually escapes special characters for safe usage in ffmpeg."""
     text = text.upper()
     text = re.sub(r"[^a-zA-Z0-9\s.,!?;:'\"()\[\]{}\-_/\\]", "", text)
-    text = text.replace("'", "'\\\\\\''").replace(":", "\:")
+    text = text.replace("'", "'\\\\\\''").replace(":", "\\:")
     return text
 
 def create_intro_intern(input_file, output_file, category_name, category_episode):
@@ -195,24 +195,29 @@ def process_all_clips_one_command(df, folder_path, remove_temp=True):
 def process_clip_overlay(input_clip, streamer_name, output_clip):
     duration = 8
     display_name = "| " + streamer_name
-    input_clip = f'"{input_clip}"'
-    output_clip = f'"{output_clip}"'
 
     font_path_escaped = str(Path(FONT_PATH).resolve()).replace('\\', '/').replace(':', r'\:')
     audio_compressor = "acompressor=threshold=-20dB:ratio=7:attack=5:release=50"
-
-    command = (
-        f'ffmpeg -y -threads 1 -i {input_clip} '
-        f'-vf "scale=1920:1080,fps=60,format=yuv420p,'
-        f'drawtext=text=\'{display_name}\':fontfile=\'{font_path_escaped}\':fontcolor=white:fontsize=70:x=-10:y=h-th-175:'
-        f'box=1:boxcolor=black@0.75:boxborderw=5|20|8|20:'
-        f'alpha=\'if(lt(t,1),t,if(lt(t,{duration}),1,1-(t-{duration})/0.5))\'" '
-        f'-af "{audio_compressor}" '
-        f'-c:v libx264 -preset fast -crf 23 -c:a aac -b:a 192k -ar 48000 -ac 2 -movflags +faststart {output_clip}'
+    video_filter = (
+        f"scale=1920:1080,fps=60,format=yuv420p,"
+        f"drawtext=text='{display_name}':fontfile='{font_path_escaped}':fontcolor=white:fontsize=70:x=-10:y=h-th-175:"
+        f"box=1:boxcolor=black@0.75:boxborderw=5|20|8|20:"
+        f"alpha='if(lt(t,1),t,if(lt(t,{duration}),1,1-(t-{duration})/0.5))'"
     )
 
-    print(f"Running command: {command}")
-    subprocess.run(command, shell=True, check=True)
+    command = [
+        "ffmpeg", "-y", "-threads", "1",
+        "-i", input_clip,
+        "-vf", video_filter,
+        "-af", audio_compressor,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+        "-movflags", "+faststart",
+        output_clip
+    ]
+
+    print(f"Running command: {' '.join(command)}")
+    subprocess.run(command, check=True)
 
 
 def has_audio(file_path):
@@ -286,15 +291,24 @@ def process_all_clips(df, folder_path, remove_temp=False, reencode_video=False):
 
     final_output = folder_path / "final_video.mp4"
     if reencode_video:
-        concat_cmd = (
-            f'ffmpeg -y -f concat -safe 0 -i "{concat_file}" '
-            f'-vf "format=yuv420p" -c:v libx264 -preset fast -crf 23 '
-            f'-c:a aac -b:a 192k -ar 48000 -movflags +faststart "{final_output}"'
-        )
+        concat_cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file),
+            "-vf", "format=yuv420p",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-movflags", "+faststart",
+            str(final_output),
+        ]
     else:
-        concat_cmd = f'ffmpeg -y -f concat -safe 0 -i "{concat_file}" -c copy "{final_output}"'
+        concat_cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file),
+            "-c", "copy",
+            str(final_output),
+        ]
 
-    subprocess.run(concat_cmd, shell=True, check=True)
+    subprocess.run(concat_cmd, check=True)
     print(f"✅ Final video created at: {final_output}")
 
     if remove_temp:
@@ -329,15 +343,24 @@ def process_all_clips_multiprocessing(df, folder_path, remove_temp=False, reenco
 
     final_output = folder_path / "final_video.mp4"
     if reencode_video:
-        concat_cmd = (
-            f'ffmpeg -y -f concat -safe 0 -i "{concat_file}" '
-            f'-vf "format=yuv420p" -c:v libx264 -preset fast -crf 23 '
-            f'-c:a aac -b:a 192k -ar 48000 -movflags +faststart "{final_output}"'
-        )
+        concat_cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file),
+            "-vf", "format=yuv420p",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+            "-movflags", "+faststart",
+            str(final_output),
+        ]
     else:
-        concat_cmd = f'ffmpeg -y -f concat -safe 0 -i "{concat_file}" -c copy "{final_output}"'
+        concat_cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_file),
+            "-c", "copy",
+            str(final_output),
+        ]
 
-    subprocess.run(concat_cmd, shell=True, check=True)
+    subprocess.run(concat_cmd, check=True)
     print(f"✅ Final video created at: {final_output}")
 
     if remove_temp:

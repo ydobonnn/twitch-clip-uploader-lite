@@ -1,5 +1,5 @@
 from create_video import create_thumbnail, create_video, get_clips_df
-from youtube_manager import get_authenticated_service, upload_video, create_description, create_tags, video_exists
+from youtube_manager import get_authenticated_service, upload_video, create_description, create_tags, video_exists, get_uploaded_titles
 from config import CATEGORIES, GAMES_FILE
 from datetime import datetime, timedelta, time, timezone
 import argparse
@@ -21,8 +21,7 @@ def get_scheduled_datetime(order_id, ref_date):
     scheduled_date = week_start + timedelta(days=day_offset)
     return datetime.combine(scheduled_date, SLOTS[slot_index], tzinfo=timezone.utc)
 
-def create_and_upload_video(ref_date, game_name, game_id, scheduled_time, privacyStatus="private"):
-    youtube = get_authenticated_service()
+def create_and_upload_video(ref_date, game_name, game_id, scheduled_time, youtube=None, existing_titles=None, privacyStatus="private"):
     episode_number = get_episode_by_week(ref_date)
     game_folder = CATEGORIES / game_name
     video_path = game_folder / "final_video.mp4"
@@ -41,22 +40,31 @@ def create_and_upload_video(ref_date, game_name, game_id, scheduled_time, privac
 
     print(f"Title: {title}\nTags: {tags}\nDescription: {desc}")
 
-    if video_exists(youtube, title):
+    if youtube is None:
+        youtube = get_authenticated_service()
+
+    if video_exists(youtube, title, cached_titles=existing_titles):
         print(f"Video already exists: {title}")
         return
 
     create_video(game_name, clips_df, episode_number)
     create_thumbnail(video_path, thumbnail_path)
 
-    upload_video(youtube=youtube, file=video_path, title=title, description=desc, category="24", keywords=tags, privacyStatus=privacyStatus, thumbnail_path=thumbnail_path, playlist_name=game_name, scheduled_upload_time=scheduled_time)
-
-    if video_exists(youtube, title):
-        print(f"Video upload successful!")
+    uploaded_video_id = upload_video(youtube=youtube, file=video_path, title=title, description=desc, category="24", keywords=tags, privacyStatus=privacyStatus, thumbnail_path=thumbnail_path, playlist_name=game_name, scheduled_upload_time=scheduled_time)
+    if uploaded_video_id:
+        print(f"Video upload successful! ID: {uploaded_video_id}")
+        if existing_titles is not None:
+            existing_titles.add(title.strip().lower())
 
 def create_and_upload_videos_for_games(ref_date, games, start_index=0, end_index=14):
+    youtube = get_authenticated_service()
+    existing_titles = get_uploaded_titles(youtube)
     for game in sorted(games, key=lambda x: x["order_id"])[start_index:end_index]:
-        scheduled_datetime = get_scheduled_datetime(game["order_id"], ref_date)
-        create_and_upload_video(ref_date, game["name"], game["id"], scheduled_datetime)
+        try:
+            scheduled_datetime = get_scheduled_datetime(game["order_id"], ref_date)
+            create_and_upload_video(ref_date, game["name"], game["id"], scheduled_datetime, youtube=youtube, existing_titles=existing_titles)
+        except Exception as e:
+            print(f"Error processing '{game['name']}' (ID: {game['id']}): {e}")
 
 if __name__ == "__main__":
     freeze_support()

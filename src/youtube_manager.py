@@ -2,12 +2,14 @@ import httplib2
 import os
 import random
 import time
-from apiclient.discovery import build
-from apiclient.errors import HttpError
-from apiclient.http import MediaFileUpload
-from oauth2client.client import flow_from_clientsecrets
-from oauth2client.file import Storage
-from oauth2client.tools import run_flow
+import datetime
+import json
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
 from config import DESCRIPTION_FILE, TAGS_FILE, YOUTUBE_CREDS_FILE, YOUTUBE_TOKEN_FILE
 
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl"
@@ -29,6 +31,10 @@ For more information about the client_secrets.json file format, please visit:
 https://developers.google.com/api-client-library/python/guide/aaa_client_secrets
 """
 
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+]
 
 # Explicitly tell the underlying HTTP transport library not to retry, since we handle retry logic.
 httplib2.RETRIES = 1
@@ -38,25 +44,31 @@ RETRIABLE_EXCEPTIONS = (httplib2.HttpLib2Error, IOError)
 RETRIABLE_STATUS_CODES = [500, 502, 503, 504]
 
 def get_authenticated_service():
-    flow = flow_from_clientsecrets(
-        str(YOUTUBE_CREDS_FILE),
-        scope=YOUTUBE_UPLOAD_SCOPE,
-        message=MISSING_CLIENT_SECRETS_MESSAGE
-    )
+    creds = None
+    token_path = str(YOUTUBE_TOKEN_FILE)
+    creds_path = str(YOUTUBE_CREDS_FILE)
 
-    storage = Storage(str(YOUTUBE_TOKEN_FILE))  # Use fixed file path
-    credentials = storage.get()
+    if os.path.exists(token_path):
+        try:
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        except (ValueError, json.JSONDecodeError):
+            creds = None
 
-    if credentials is None or credentials.invalid:
-        credentials = run_flow(flow, storage)
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    elif not creds or not creds.valid:
+        if not os.path.exists(creds_path):
+            raise FileNotFoundError(MISSING_CLIENT_SECRETS_MESSAGE)
+        flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
+        try:
+            creds = flow.run_local_server(port=0)
+        except Exception:
+            creds = flow.run_console()
 
-    return build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, http=credentials.authorize(httplib2.Http()))
+    with open(token_path, "w", encoding="utf-8") as token:
+        token.write(creds.to_json())
 
-from googleapiclient.http import MediaFileUpload
-from googleapiclient.errors import HttpError
-import time
-import random
-import datetime
+    return build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION, credentials=creds)
 
 # Add the new parameter for scheduled upload time
 def initialize_upload(youtube, file, title, description, category, keywords, privacyStatus, 
@@ -94,7 +106,7 @@ def initialize_upload(youtube, file, title, description, category, keywords, pri
         media_body=MediaFileUpload(file, chunksize=-1, resumable=True)
     )
 
-    resumable_upload(youtube, insert_request, thumbnail_path, playlist_name)
+    return resumable_upload(youtube, insert_request, thumbnail_path, playlist_name)
 
 
 def resumable_upload(youtube, insert_request, thumbnail_path, playlist_name=None):
@@ -117,9 +129,10 @@ def resumable_upload(youtube, insert_request, thumbnail_path, playlist_name=None
                     # Add video to playlist if a playlist name is provided
                     if playlist_name:
                         ensure_playlist_and_add_video(youtube, playlist_name, video_id)
+                    return video_id
 
                 else:
-                    exit(f"The upload failed with an unexpected response: {response}")
+                    raise RuntimeError(f"The upload failed with an unexpected response: {response}")
         except HttpError as e:
             if e.resp.status in RETRIABLE_STATUS_CODES:
                 error = f"A retriable HTTP error {e.resp.status} occurred:\n{e.content}"
@@ -132,7 +145,7 @@ def resumable_upload(youtube, insert_request, thumbnail_path, playlist_name=None
             print(error)
             retry += 1
             if retry > MAX_RETRIES:
-                exit("No longer attempting to retry.")
+                raise RuntimeError("No longer attempting to retry.")
 
             max_sleep = 2**retry
             sleep_seconds = random.random() * max_sleep
@@ -151,10 +164,11 @@ def upload_video(youtube, file, title="Test Title", description="Test Descriptio
             pass  # Already in the correct format
     
     try:
-        initialize_upload(youtube, file, title, description, category, keywords, privacyStatus, 
-                          thumbnail_path, playlist_name, scheduled_upload_time)
+        return initialize_upload(youtube, file, title, description, category, keywords, privacyStatus, 
+                                 thumbnail_path, playlist_name, scheduled_upload_time)
     except HttpError as e:
         print(f"An HTTP error {e.resp.status} occurred:\n{e.content}")
+        return None
 
 
 def set_thumbnail(youtube, video_id, thumbnail_path):
@@ -294,41 +308,45 @@ def create_tags(game_name, streamer_names, tags_file=TAGS_FILE):
 
     return ",".join(final_tags)
 
-def video_exists(youtube, title_to_check):
+def get_uploaded_titles(youtube):
+    """Return lowercase titles for all uploaded videos on the authenticated channel."""
+    channels_response = youtube.channels().list(
+        part="contentDetails",
+        mine=True
+    ).execute()
+
+    uploads_playlist_id = channels_response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    titles = set()
+    next_page_token = None
+
+    while True:
+        playlist_response = youtube.playlistItems().list(
+            playlistId=uploads_playlist_id,
+            part="snippet",
+            maxResults=50,
+            pageToken=next_page_token
+        ).execute()
+
+        for item in playlist_response["items"]:
+            video_title = item["snippet"]["title"].strip().lower()
+            titles.add(video_title)
+
+        next_page_token = playlist_response.get("nextPageToken")
+        if not next_page_token:
+            break
+
+    return titles
+
+def video_exists(youtube, title_to_check, cached_titles=None):
     """
     Checks if a video with the given title already exists on the channel.
     This includes scheduled, private, unlisted, and public videos.
     """
     try:
-        # Step 1: Get the uploads playlist ID
-        channels_response = youtube.channels().list(
-            part="contentDetails",
-            mine=True
-        ).execute()
-
-        uploads_playlist_id = channels_response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
-
-        # Step 2: Fetch videos from uploads playlist
-        next_page_token = None
-        while True:
-            playlist_response = youtube.playlistItems().list(
-                playlistId=uploads_playlist_id,
-                part="snippet",
-                maxResults=50,
-                pageToken=next_page_token
-            ).execute()
-
-            for item in playlist_response["items"]:
-                video_title = item["snippet"]["title"].strip().lower()
-                if video_title == title_to_check.strip().lower():
-                    # print(f"Video with title '{title_to_check}' already exists (including scheduled/unlisted/private).")
-                    return True
-
-            next_page_token = playlist_response.get("nextPageToken")
-            if not next_page_token:
-                break
-
-        return False
+        lookup = title_to_check.strip().lower()
+        if cached_titles is not None:
+            return lookup in cached_titles
+        return lookup in get_uploaded_titles(youtube)
     except HttpError as e:
         print(f"Error checking video existence: {e}")
         return False

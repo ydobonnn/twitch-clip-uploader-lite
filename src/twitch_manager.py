@@ -13,23 +13,21 @@ def get_access_token(client_id, client_secret):
         'client_secret': client_secret,
         'grant_type': 'client_credentials'
     }
-    response = requests.post(url, params=params)
+    response = requests.post(url, params=params, timeout=30)
     response.raise_for_status()
     return response.json()['access_token']
 
 # Function to get the game ID for Marvel Rivals
 def get_game_id(game_name):
     url = "https://api.twitch.tv/helix/games"
-    headers = get_auth_headers()
     params = {"name": game_name}
-    response = requests.get(url, headers=headers, params=params)
-    data = response.json().get("data", [])
+    response = twitch_get_with_refresh(url, params=params)
+    data = response.get("data", [])
     return data[0]["id"] if data else None
 
 # Function to fetch top 10 most viewed clips in the last 7 days
 def get_top_clips(game_id, days=7, limit=100, cursor=None):
     url = "https://api.twitch.tv/helix/clips"
-    headers = get_auth_headers()
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
     params = {
@@ -43,8 +41,7 @@ def get_top_clips(game_id, days=7, limit=100, cursor=None):
     if cursor:
         params["after"] = cursor  # Twitch API uses 'after' for pagination
 
-    response = requests.get(url, headers=headers, params=params)
-    return response.json() 
+    return twitch_get_with_refresh(url, params=params) 
 
 def get_top_clips_last_week(game_id, limit=100, cursor=None, end_time=None):
     """
@@ -82,16 +79,14 @@ def get_top_clips_last_week(game_id, limit=100, cursor=None, end_time=None):
         "game_id": game_id,
         "first": limit,
         "started_at": start_time_str,
-        "ended_at": end_time_str,
-        "after": cursor  # Handle pagination
+        "ended_at": end_time_str
     }
+    if cursor:
+        params["after"] = cursor  # Handle pagination
 
     # Make the API call to get top clips for the given game and time range
     url = "https://api.twitch.tv/helix/clips"
-    headers = get_auth_headers()
-
-    response = requests.get(url, headers=headers, params=params)
-    return response.json()  # Return the API response as JSON
+    return twitch_get_with_refresh(url, params=params)
 
 def get_english_clips(game_id, desired_count=10, today=None):
     """
@@ -110,7 +105,7 @@ def get_english_clips(game_id, desired_count=10, today=None):
     all_english_clips = []
     cursor = None  # The pagination cursor provided by the API
 
-    while len(all_english_clips) < desired_count:
+    while True:
         # Call the API to get a batch of clips.
         # The get_top_clips function must be adapted to accept a 'cursor' parameter.
         response = get_top_clips_last_week(game_id, limit=batch_size, cursor=cursor, end_time=today)
@@ -124,6 +119,9 @@ def get_english_clips(game_id, desired_count=10, today=None):
         # Filter for English clips
         english_clips = [clip for clip in clips_batch if clip.get("language") == "en"]
         all_english_clips.extend(english_clips)
+        all_english_clips = dedupe_overlapping_clips(all_english_clips)
+        if len(all_english_clips) >= desired_count:
+            break
 
         # Check for a pagination cursor for the next batch
         pagination = response.get("pagination", {})
@@ -131,9 +129,6 @@ def get_english_clips(game_id, desired_count=10, today=None):
             cursor = pagination["cursor"]
         else:
             break  # No more pages available
-
-    # Drop near-duplicate moments from the same VOD (keeps higher-view clip first)
-    all_english_clips = dedupe_overlapping_clips(all_english_clips)
 
     # Return only the desired number of English clips, or as many as were available.
     return all_english_clips[:desired_count]
@@ -201,8 +196,14 @@ def get_clip_count(clips):
     if len(clips) < 10:
         print(f"Not enough clips ({len(clips)}) to build a video. Skipping.")
         return 0
-    
+
     min_clips, max_clips = get_clip_counts_for_length(clips)
+    if min_clips is None:
+        min_clips = 1
+    if max_clips is None:
+        max_clips = len(clips)
+    if max_clips < min_clips:
+        max_clips = min_clips
 
     # Get the views threshold for the clip that exceeds 600s cumulative length
     views_threshold = clips[9]["view_count"]
@@ -249,6 +250,16 @@ def dedupe_overlapping_clips(clips, overlap_ratio=0.25):
             kept.append(clip)
     return kept
 
+def twitch_get_with_refresh(url, params=None):
+    headers = get_auth_headers()
+    response = requests.get(url, headers=headers, params=params, timeout=30)
+    if response.status_code == 401:
+        invalidate_access_token()
+        headers = get_auth_headers()
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
 # Load environment variables from a .env file if present (for local use)
 load_dotenv()
 
@@ -266,6 +277,10 @@ def get_auth_headers():
         "Client-ID": CLIENT_ID,
         "Authorization": f"Bearer {token}"
     }
+
+def invalidate_access_token():
+    global ACCESS_TOKEN
+    ACCESS_TOKEN = None
 
 def get_access_token_cached():
     """Lazily fetch and cache the Twitch access token without logging it."""
