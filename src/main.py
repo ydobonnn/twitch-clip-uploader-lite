@@ -8,14 +8,14 @@ from multiprocessing import freeze_support
 import traceback
 
 SLOTS = [time(17, 0), time(21, 0)]  # 17:00 UTC and 21:00 UTC
-EPISODE_START_DATE = datetime(2025, 3, 24, tzinfo=timezone.utc) # Monday, March 24, 2025
 OUTCOME_UPLOADED = "uploaded"
 OUTCOME_SKIPPED_NO_CLIPS = "skipped_no_clips"
 OUTCOME_SKIPPED_EXISTS = "skipped_exists"
 
-def get_episode_by_week(override_date=None):
+def get_episode_by_week(category_start_date, override_date=None):
+    start_date = datetime.fromisoformat(category_start_date).replace(tzinfo=timezone.utc)
     today = override_date or datetime.now(timezone.utc)
-    weeks_elapsed = (today - EPISODE_START_DATE).days // 7
+    weeks_elapsed = (today - start_date).days // 7
     return weeks_elapsed + 1
 
 def get_scheduled_datetime(order_id, ref_date):
@@ -25,8 +25,8 @@ def get_scheduled_datetime(order_id, ref_date):
     scheduled_date = week_start + timedelta(days=day_offset)
     return datetime.combine(scheduled_date, SLOTS[slot_index], tzinfo=timezone.utc)
 
-def create_and_upload_video(ref_date, game_name, game_id, scheduled_time, youtube=None, existing_titles=None, privacyStatus="private"):
-    episode_number = get_episode_by_week(ref_date)
+def create_and_upload_video(ref_date, game_name, game_id, episode_start_date, scheduled_time, youtube=None, existing_titles=None, privacyStatus="private"):
+    episode_number = get_episode_by_week(episode_start_date, ref_date)
     game_folder = CATEGORIES / game_name
     video_path = game_folder / "final_video.mp4"
     thumbnail_path = game_folder / "final_thumbnail.jpg"
@@ -80,7 +80,15 @@ def create_and_upload_videos_for_games(ref_date, games, start_index=0, end_index
     for game in selected_games:
         try:
             scheduled_datetime = get_scheduled_datetime(game["order_id"], ref_date)
-            outcome = create_and_upload_video(ref_date, game["name"], game["id"], scheduled_datetime, youtube=youtube, existing_titles=existing_titles)
+            outcome = create_and_upload_video(
+                ref_date,
+                game["name"],
+                game["id"],
+                game["episode_start_date"],
+                scheduled_datetime,
+                youtube=youtube,
+                existing_titles=existing_titles,
+            )
             outcomes[outcome] = outcomes.get(outcome, 0) + 1
         except Exception as e:
             print(f"Error processing '{game['name']}' (ID: {game['id']}): {e}")
