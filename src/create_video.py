@@ -1,4 +1,4 @@
-from process_clips import  create_intro, process_all_clips_one_command, process_all_clips, process_all_clips_multiprocessing
+from process_clips import  create_intro, filter_clips_with_audio, process_all_clips_one_command, process_all_clips, process_all_clips_multiprocessing
 from twitch_manager import download_clips, get_english_clips, get_clip_count
 from PIL import Image
 import pandas as pd
@@ -7,6 +7,9 @@ import os
 import tempfile
 from pathlib import Path
 from config import CATEGORIES, OVERLAY_PATH
+
+MIN_USABLE_CLIP_DURATION_SEC = 480
+MIN_USABLE_CLIP_COUNT = 4
 
 def get_clips_df(game_id, ref_date):
     columns = ["clip_filename", "clip_name", "duration_sec", "views", "streamer_name", "clip_id"]
@@ -44,6 +47,13 @@ def create_video(game_name, df, episode_number):
     df = download_clips(df, folder_path)
     if df.empty:
         raise RuntimeError(f"No clips could be downloaded for {game_name}.")
+    df = filter_clips_with_audio(df, folder_path)
+    usable_duration = df["duration_sec"].sum() if not df.empty else 0
+    if len(df) < MIN_USABLE_CLIP_COUNT or usable_duration < MIN_USABLE_CLIP_DURATION_SEC:
+        raise RuntimeError(
+            f"Not enough usable clips for {game_name}: "
+            f"{len(df)} clips, {usable_duration:.1f}s total."
+        )
 
     # Create intro and outro files
     create_intro(df, folder_path, game_name, episode_number)

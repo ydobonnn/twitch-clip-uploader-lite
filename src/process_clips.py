@@ -158,7 +158,6 @@ def filter_clips_with_audio(df, folder_path):
 
 def process_all_clips_one_command(df, folder_path, remove_temp=True):
     folder_path = Path(folder_path)
-    df = filter_clips_with_audio(df, folder_path)
 
     intro_path = folder_path / "intro.mp4"
     outro_path = ASSETS / "outro.mp4"
