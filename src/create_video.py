@@ -41,7 +41,9 @@ def create_video(game_name, df, episode_number):
     start_time = time.time()  # Start timer
     folder_path = CATEGORIES / game_name
     # Download all clips to "clips" folder
-    download_clips(df, folder_path)
+    df = download_clips(df, folder_path)
+    if df.empty:
+        raise RuntimeError(f"No clips could be downloaded for {game_name}.")
 
     # Create intro and outro files
     create_intro(df, folder_path, game_name, episode_number)

@@ -147,6 +147,7 @@ def download_clip(clip_id, save_path):
 
 def download_clips(df, save_dir):
     os.makedirs(save_dir, exist_ok=True)  # Ensure save directory exists
+    downloaded_rows = []
 
     for index, row in df.iterrows():
         clip_id = row["clip_id"]
@@ -154,8 +155,15 @@ def download_clips(df, save_dir):
         # Check if the clip already exists
         if os.path.isfile(save_path):
             print(f"Clip '{row['clip_filename']}' already exists, skipping download.")
+            downloaded_rows.append(row)
         else:
-            download_clip(clip_id, save_path)
+            try:
+                download_clip(clip_id, save_path)
+                downloaded_rows.append(row)
+            except yt_dlp.utils.DownloadError as e:
+                print(f"Skipping clip '{clip_id}' because it could not be downloaded: {e}")
+
+    return df.loc[[row.name for row in downloaded_rows]].reset_index(drop=True)
 
 def get_clip_counts_for_length(clips, min_length=600, max_length=1200):
     """
