@@ -1,4 +1,4 @@
-name: Upload Batch 1 (0-7)
+name: Upload Weekly Batch (0-10)
 
 on:
   schedule:
@@ -29,4 +29,4 @@ jobs:
           echo "TWITCH_CLIENT_ID=${{ secrets.TWITCH_CLIENT_ID }}" >> .env
           echo "TWITCH_CLIENT_SECRET=${{ secrets.TWITCH_CLIENT_SECRET }}" >> .env
 
-      - run: python src/main.py --start 0 --end 7
+      - run: python src/main.py --start 0 --end 10
